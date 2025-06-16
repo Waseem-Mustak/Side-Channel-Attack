@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Fingerprinting</title>
+    <!-- Pico CSS - minimal CSS framework -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <!-- Alpine.js - minimal reactive framework -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        body {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .results-table {
+            margin: 0 auto;
+            width: 100%;
+        }        
+    </style>
+</head>
+<body>
+    <main class="container" x-data="app()">
+        <h1>CSE406: Website Fingerprinting</h1>
+        
+        <div class="button-group">
+            <button @click="collectLatencyData()" :disabled="isCollecting">Collect Latency Data</button>
+            <button @click="collectTraceData()" :disabled="isCollecting">Collect trace</button>
+            <button @click="downloadTraces()">Download traces</button>
+            <button @click="clearResults()">Clear all results</button>
+        </div>
+        
+        <div x-show="status" role="alert" x-text="status" 
+             :class="{'alert-success': !statusIsError, 'alert-error': statusIsError}"></div>
+        
+        <!-- Latency Results Table -->
+        <template x-if="latencyResults && !showingTraces">
+            <div class="results-container">
+                <h3>Latency Results</h3>
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>N</th>
+                            <th>Median Access Latency (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="(time, n) in latencyResults" :key="n">
+                            <tr>
+                                <td x-text="n"></td>
+                                <td x-text="time.toFixed(2)"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </template>
+        
+        <!-- Heatmap gallery for all traces -->
+        <template x-if="heatmaps.length > 0 && showingTraces">
+            <div class="results-container">
+                <h3>Trace Heatmaps</h3>
+                <template x-for="(heatmap, idx) in heatmaps" :key="heatmap.url">
+                    <div style="margin-bottom: 2rem; background: #222; padding: 1rem; border-radius: 1rem;">
+                        <img :src="heatmap.url" alt="Trace Heatmap" style="width: 100%; max-width: 800px; display: block; margin: 0 auto; background: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+                        <div style="color: #fff; text-align: left; margin-top: 0.5rem; font-size: 1rem;">
+                            Min: <span x-text="heatmap.min"></span>,
+                            Max: <span x-text="heatmap.max"></span>,
+                            Range: <span x-text="heatmap.range"></span>,
+                            Samples: <span x-text="heatmap.samples"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </main>
+
+    <script src="index.js"></script>
+    <script>
+        // Initialize app by fetching existing results when page loads
+        document.addEventListener('alpine:init', () => {
+            window.Alpine.store('app').fetchResults();
+        });
+    </script>
+</body>
+</html>
