@@ -104,22 +104,62 @@ function app() {
 
     // Download the trace data as JSON (array of arrays format for ML)
     async downloadTraces() {
-       /* 
-        * Implement this function to download the trace data.
-        * 1. Fetch the latest data from the backend API.
-        * 2. Create a download file with the trace data in JSON format.
-        * 3. Handle errors and update the status.
-        */
+      try {
+        this.status = "Downloading traces...";
+        this.statusIsError = false;
+
+        // Fetch the latest data from the backend API
+        const response = await fetch("/download_traces");
+        if (!response.ok) throw new Error("Failed to fetch traces from server");
+        const traces = await response.json();
+
+        // Create a download file with the trace data
+        const blob = new Blob([JSON.stringify(traces, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `fingerprint_traces_${new Date().toISOString().slice(0,19).replace(/[:]/g, '-')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        this.status = "Traces downloaded successfully!";
+      } catch (error) {
+        console.error("Error downloading traces:", error);
+        this.status = `Error: ${error.message}`;
+        this.statusIsError = true;
+      }
     },
 
     // Clear all results from the server
     async clearResults() {
-      /* 
-       * Implement this function to clear all results from the server.
-       * 1. Send a request to the backend API to clear all results.
-       * 2. Clear local copies of trace data and heatmaps.
-       * 3. Handle errors and update the status.
-       */
+      try {
+        this.status = "Clearing all results...";
+        this.statusIsError = false;
+
+        // Send request to clear all results
+        const response = await fetch("/api/clear_results", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+
+        if (!response.ok) throw new Error("Failed to clear results from server");
+        const data = await response.json();
+
+        if (data.success) {
+          // Clear local copies
+          this.heatmaps = [];
+          this.traceData = [];
+          this.status = "All results cleared successfully!";
+        } else {
+          throw new Error(data.message || "Failed to clear results");
+        }
+      } catch (error) {
+        console.error("Error clearing results:", error);
+        this.status = `Error: ${error.message}`;
+        this.statusIsError = true;
+      }
     },
   };
 }
