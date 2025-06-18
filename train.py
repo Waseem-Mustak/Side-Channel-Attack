@@ -255,14 +255,292 @@ def evaluate(model, test_loader, website_names):
 
 
 def main():
-    """ Implement the main function to train and evaluate the models.
-    1. Load the dataset from the JSON file, probably using a custom Dataset class
-    2. Split the dataset into training and testing sets
-    3. Create data loader for training and testing
-    4. Define the models to train
-    5. Train and evaluate each model
-    6. Print comparison of results
-    """
+    # Load raw JSON
+    with open(DATASET_PATH) as f:
+        raw = json.load(f)
+    # Determine format (single dict vs list of dicts)
+    if isinstance(raw, dict) and 'trace_data' in raw:
+        records = [raw]
+    elif isinstance(raw, list):
+        records = raw
+    else:
+        raise ValueError("Unsupported dataset format")
+
+    # Extract traces and sites
+    traces = [r['trace_data'] for r in records]
+    # print(traces[0])
+    sites = [r['website'] for r in records]
+
+    # Label mapping
+    unique_sites = sorted(set(sites))
+    # print(unique_sites)
+    label_map = {s: i for i, s in enumerate(unique_sites)}
+    # print(label_map)
+    labels = [label_map[s] for s in sites]
+    # print(labels)
+    # Prepare X, y
+    X = np.zeros((len(traces), INPUT_SIZE), dtype=np.float32)
+    for i, t in enumerate(traces):
+        arr = np.array(t, dtype=np.float32)
+        length = min(len(arr), INPUT_SIZE)
+        X[i, :length] = arr[:length]
+    y = np.array(labels, dtype=np.int64)
+
+    # Dataset & split
+    class FingerprintDataset(Dataset):
+        def __init__(self, X, y):
+            self.X = torch.from_numpy(X)
+            self.y = torch.from_numpy(y)
+        def __len__(self): return len(self.y)
+        def __getitem__(self, idx): return self.X[idx], self.y[idx]
+
+    dataset = FingerprintDataset(X, y)
+    sss = StratifiedShuffleSplit(1, test_size=1-TRAIN_SPLIT, random_state=42)
+    train_idx, test_idx = next(sss.split(X, y))
+    # print(train_idx[0])
+    # print(test_idx[0])
+    train_loader = DataLoader(Subset(dataset, train_idx), batch_size=BATCH_SIZE, shuffle=True)
+    test_loader = DataLoader(Subset(dataset, test_idx), batch_size=BATCH_SIZE)
+    # print(len(train_loader.dataset))
+    # print(len(test_loader.dataset))
+    # Train & evaluate
+    models = [
+        (FingerprintClassifier(INPUT_SIZE, HIDDEN_SIZE, len(unique_sites)), 'simple'),
+        (ComplexFingerprintClassifier(INPUT_SIZE, HIDDEN_SIZE, len(unique_sites)), 'complex')
+    ]
+    for model, name in models:
+        print(f"\nTraining {name} model...")
+        save_path = os.path.join(MODELS_DIR, f"{name}_model.pth")
+        # If a saved model exists, load its parameters before (re-)training
+        if os.path.exists(save_path):
+            model.load_state_dict(torch.load(save_path))
+            print(f"Loaded existing weights for {name} model from {save_path}")
+        train(
+            model,
+            train_loader,
+            test_loader,
+            nn.CrossEntropyLoss(),
+            optim.Adam(model.parameters(), lr=LEARNING_RATE),
+            EPOCHS,
+            save_path
+        )
+        print(f"\nEvaluating {name} model")
+        model.load_state_dict(torch.load(save_path))
+        evaluate(model, test_loader, unique_sites)
 
 if __name__ == "__main__":
     main()
+
+
+
+
+# import os
+# import json
+# import numpy as np
+# import torch
+# import torch.nn as nn
+# import torch.optim as optim
+# from torch.utils.data import Dataset, DataLoader, Subset
+# from sklearn.metrics import classification_report
+# from sklearn.model_selection import StratifiedShuffleSplit
+
+# # Configuration
+# DATASET_PATH = "dataset.json"
+# MODELS_DIR = "saved_models"
+# BATCH_SIZE = 64
+# EPOCHS = 50  
+# LEARNING_RATE = 1e-4
+# TRAIN_SPLIT = 0.8 
+# INPUT_SIZE = 1000  
+# HIDDEN_SIZE = 128
+
+# # Ensure models directory exists
+# os.makedirs(MODELS_DIR, exist_ok=True)
+
+
+# class FingerprintClassifier(nn.Module):
+#     """Basic neural network model for website fingerprinting classification."""
+    
+#     def __init__(self, input_size, hidden_size, num_classes):
+#         super(FingerprintClassifier, self).__init__()
+#         self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=5, stride=2, padding=2)
+#         self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+#         self.conv2 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=5, stride=1, padding=2)
+#         self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2)
+#         conv_output_size = input_size // 8  # After two 2x pooling
+#         self.fc_input_size = conv_output_size * 64
+#         self.fc1 = nn.Linear(self.fc_input_size, hidden_size)
+#         self.dropout = nn.Dropout(0.5)
+#         self.fc2 = nn.Linear(hidden_size, num_classes)
+#         self.relu = nn.ReLU()
+    
+#     def forward(self, x):
+#         x = x.unsqueeze(1)
+#         x = self.relu(self.conv1(x))
+#         x = self.pool1(x)
+#         x = self.relu(self.conv2(x))
+#         x = self.pool2(x)
+#         x = x.view(-1, self.fc_input_size)
+#         x = self.relu(self.fc1(x))
+#         x = self.dropout(x)
+#         return self.fc2(x)
+        
+# class ComplexFingerprintClassifier(nn.Module):
+#     """A more complex neural network model for website fingerprinting classification."""
+    
+#     def __init__(self, input_size, hidden_size, num_classes):
+#         super(ComplexFingerprintClassifier, self).__init__()
+#         self.conv1 = nn.Conv1d(1, 32, 5, padding=2)
+#         self.bn1 = nn.BatchNorm1d(32)
+#         self.pool1 = nn.MaxPool1d(2)
+#         self.conv2 = nn.Conv1d(32, 64, 3, padding=1)
+#         self.bn2 = nn.BatchNorm1d(64)
+#         self.pool2 = nn.MaxPool1d(2)
+#         self.conv3 = nn.Conv1d(64, 128, 3, padding=1)
+#         self.bn3 = nn.BatchNorm1d(128)
+#         self.pool3 = nn.MaxPool1d(2)
+#         conv_output_size = input_size // 8  # After three 2x pooling
+#         self.fc_input_size = conv_output_size * 128
+#         self.fc1 = nn.Linear(self.fc_input_size, hidden_size*2)
+#         self.bn4 = nn.BatchNorm1d(hidden_size*2)
+#         self.dropout1 = nn.Dropout(0.5)
+#         self.fc2 = nn.Linear(hidden_size*2, hidden_size)
+#         self.bn5 = nn.BatchNorm1d(hidden_size)
+#         self.dropout2 = nn.Dropout(0.3)
+#         self.fc3 = nn.Linear(hidden_size, num_classes)
+#         self.relu = nn.ReLU()
+    
+#     def forward(self, x):
+#         x = x.unsqueeze(1)
+#         x = self.relu(self.bn1(self.conv1(x)))
+#         x = self.pool1(x)
+#         x = self.relu(self.bn2(self.conv2(x)))
+#         x = self.pool2(x)
+#         x = self.relu(self.bn3(self.conv3(x)))
+#         x = self.pool3(x)
+#         x = x.view(-1, self.fc_input_size)
+#         x = self.relu(self.bn4(self.fc1(x)))
+#         x = self.dropout1(x)
+#         x = self.relu(self.bn5(self.fc2(x)))
+#         x = self.dropout2(x)
+#         return self.fc3(x)
+
+
+# def train(model, train_loader, test_loader, criterion, optimizer, epochs, model_save_path):
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     model.to(device)
+#     best_accuracy = 0.0
+#     for epoch in range(epochs):
+#         model.train()
+#         running_loss = correct = total = 0
+#         for traces, labels in train_loader:
+#             traces, labels = traces.to(device), labels.to(device)
+#             optimizer.zero_grad()
+#             outputs = model(traces)
+#             loss = criterion(outputs, labels)
+#             loss.backward()
+#             optimizer.step()
+#             running_loss += loss.item() * traces.size(0)
+#             _, preds = torch.max(outputs, 1)
+#             correct += (preds == labels).sum().item()
+#             total += labels.size(0)
+#         train_loss = running_loss / total
+#         train_acc = correct / total
+
+#         model.eval()
+#         running_loss = correct = total = 0
+#         with torch.no_grad():
+#             for traces, labels in test_loader:
+#                 traces, labels = traces.to(device), labels.to(device)
+#                 outputs = model(traces)
+#                 loss = criterion(outputs, labels)
+#                 running_loss += loss.item() * traces.size(0)
+#                 _, preds = torch.max(outputs, 1)
+#                 correct += (preds == labels).sum().item()
+#                 total += labels.size(0)
+#         test_acc = correct / total
+#         print(f"Epoch {epoch+1}/{epochs}: Train Acc={train_acc:.4f}, Test Acc={test_acc:.4f}")
+#         if test_acc > best_accuracy:
+#             best_accuracy = test_acc
+#             torch.save(model.state_dict(), model_save_path)
+#     return best_accuracy
+
+
+# def evaluate(model, test_loader, labels):
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     model.to(device).eval()
+#     all_preds, all_labels = [], []
+#     with torch.no_grad():
+#         for traces, lab in test_loader:
+#             traces, lab = traces.to(device), lab.to(device)
+#             outputs = model(traces)
+#             _, preds = torch.max(outputs, 1)
+#             all_preds.extend(preds.cpu().numpy())
+#             all_labels.extend(lab.cpu().numpy())
+#     print("\n" + classification_report(all_labels, all_preds, target_names=labels, zero_division=1))
+
+
+# def main():
+#     # Load raw JSON
+#     with open(DATASET_PATH) as f:
+#         raw = json.load(f)
+#     # Determine format (single dict vs list of dicts)
+#     if isinstance(raw, dict) and 'trace_data' in raw:
+#         records = [raw]
+#     elif isinstance(raw, list):
+#         records = raw
+#     else:
+#         raise ValueError("Unsupported dataset format")
+
+#     # Extract traces and sites
+#     traces = [r['trace_data'] for r in records]
+#     # print(traces[0])
+#     sites = [r['website'] for r in records]
+
+#     # Label mapping
+#     unique_sites = sorted(set(sites))
+#     # print(unique_sites)
+#     label_map = {s: i for i, s in enumerate(unique_sites)}
+#     # print(label_map)
+#     labels = [label_map[s] for s in sites]
+#     # print(labels)
+#     # Prepare X, y
+#     X = np.zeros((len(traces), INPUT_SIZE), dtype=np.float32)
+#     for i, t in enumerate(traces):
+#         arr = np.array(t, dtype=np.float32)
+#         length = min(len(arr), INPUT_SIZE)
+#         X[i, :length] = arr[:length]
+#     y = np.array(labels, dtype=np.int64)
+
+#     # Dataset & split
+#     class FingerprintDataset(Dataset):
+#         def __init__(self, X, y):
+#             self.X = torch.from_numpy(X)
+#             self.y = torch.from_numpy(y)
+#         def __len__(self): return len(self.y)
+#         def __getitem__(self, idx): return self.X[idx], self.y[idx]
+
+#     dataset = FingerprintDataset(X, y)
+#     sss = StratifiedShuffleSplit(1, test_size=1-TRAIN_SPLIT, random_state=42)
+#     train_idx, test_idx = next(sss.split(X, y))
+#     # print(train_idx[0])
+#     # print(test_idx[0])
+#     train_loader = DataLoader(Subset(dataset, train_idx), batch_size=BATCH_SIZE, shuffle=True)
+#     test_loader = DataLoader(Subset(dataset, test_idx), batch_size=BATCH_SIZE)
+#     # print(len(train_loader.dataset))
+#     # print(len(test_loader.dataset))
+#     # Train & evaluate
+#     models = [
+#         (FingerprintClassifier(INPUT_SIZE, HIDDEN_SIZE, len(unique_sites)), 'simple'),
+#         (ComplexFingerprintClassifier(INPUT_SIZE, HIDDEN_SIZE, len(unique_sites)), 'complex')
+#     ]
+#     for model, name in models:
+#         print(f"\nTraining {name} model...")
+#         save_path = os.path.join(MODELS_DIR, f"{name}_model.pth")
+#         train(model, train_loader, test_loader, nn.CrossEntropyLoss(), optim.Adam(model.parameters(), lr=LEARNING_RATE), EPOCHS, save_path)
+#         print(f"\nEvaluating {name} model")
+#         model.load_state_dict(torch.load(save_path))
+#         evaluate(model, test_loader, unique_sites)
+
+# if __name__ == "__main__":
+#     main()

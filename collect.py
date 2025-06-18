@@ -24,7 +24,7 @@ WEBSITES = [
     "https://prothomalo.com",
 ]
 
-TRACES_PER_SITE = 3
+TRACES_PER_SITE = 20
 FINGERPRINTING_URL = "http://localhost:5000"
 OUTPUT_PATH = "dataset.json"
 
@@ -125,127 +125,116 @@ def is_collection_complete():
 def collect_single_trace(driver, wait, website_url):
     """Collect a single fingerprint trace for the given website."""
     try:
-        # Open fingerprinting page
+        print(f"\n▶ Starting trace for {website_url}")
         driver.get(FINGERPRINTING_URL)
-        # Ensure page loaded
         wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
-        
-        # Find and click the "Collect Trace" button
-        collect_button = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(text(), 'Collect trace')]")))
+
+        # print("   • Clicking “Collect trace”…", end=" ")
+        collect_button = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Collect trace')]"))
+        )
         collect_button.click()
-        print("  - Started trace collection monitoring...")
-        time.sleep(2)  # Give time for monitoring to initialize
-        
-        # Store the fingerprinting tab handle
+        # print("Done")
+
+        time.sleep(2)  # initialize
         fingerprinting_tab = driver.current_window_handle
-        
-        # Open target site in a new tab
+
+        # print("   • Opening target site…", end=" ")
         driver.execute_script("window.open('');")
         driver.switch_to.window(driver.window_handles[-1])
-        print(f"  - Opening target website: {website_url}")
         driver.get(website_url)
-        
-        # Wait for the target website to load
         wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
-        time.sleep(2)  # Additional wait for dynamic content
-        
-        # Simulate user interaction on target site
-        print("  - Simulating user interaction...")
+        # print("Loaded")
+
+        # print("   • Simulating scrolling…", end=" ")
         height = driver.execute_script("return document.body.scrollHeight;")
         for _ in range(random.randint(3, 6)):
-            scroll = random.randint(0, height)
-            driver.execute_script(f"window.scrollTo(0, {scroll});")
+            driver.execute_script(f"window.scrollTo(0, {random.randint(0, height)});")
             time.sleep(random.uniform(0.5, 1.0))
-        
-        # Close target tab and return to fingerprinting tab
+        # print("Done")
+
         driver.close()
         driver.switch_to.window(fingerprinting_tab)
-        print("  - Returned to fingerprinting tab")
-        
-        # Wait for trace collection to complete
-        print("  - Waiting for trace collection to finish...")
-        time.sleep(3)  # Give time for trace collection
-        
-        # Get the trace data
+        # print("   • Back to collector tab")
+
+        # print("   • Waiting for trace to finish…", end=" ")
+        time.sleep(3)
+        # print("Ready")
+
         trace_data = driver.execute_script("""
             return fetch('/download_traces')
                 .then(response => response.json())
-                .then(data => {
-                    if (data && data.length > 0) {
-                        return data[data.length - 1].trace_data;
-                    }
-                    return null;
-                })
+                .then(data => (data && data.length) ? data.pop().trace_data : null)
                 .catch(() => null);
         """)
-        
-        if trace_data:
-            # Save to database
-            site_idx = WEBSITES.index(website_url)
-            print(f"  - Saving trace to database for {website_url} at index {site_idx}")
-            if database.db.save_trace(website_url, site_idx, trace_data):
-                print("  - Successfully saved trace to database")
-                return True
-            else:
-                print("  - Failed to save trace to database")
-                return False
-        else:
-            print("  - No trace data found")
+
+        if not trace_data:
+            print("   ✗ No trace data received")
             return False
-            
+
+        site_idx = WEBSITES.index(website_url)
+        print(f"   • Saving trace (site #{site_idx})…", end=" ")
+        if database.db.save_trace(website_url, site_idx, trace_data):
+            print("Success ✔")
+            return True
+        else:
+            print("Failed ✗")
+            return False
+
     except Exception as e:
-        print(f"Error collecting trace for {website_url}: {e}")
+        print(f"   ! Error on {website_url}: {e}")
         traceback.print_exc()
         return False
 
 
 def collect_fingerprints(driver, target_counts=None):
     """Collect fingerprints until each site has TRACES_PER_SITE traces."""
-    new_count = 0
+    total_new = 0
     current = database.db.get_traces_collected()
-    targets = {site: TRACES_PER_SITE - current.get(site, 0) for site in WEBSITES}
-    for site, remaining in targets.items():
-        print(f"Collecting {remaining} traces for {site}")
+    for site in WEBSITES:
+        remaining = TRACES_PER_SITE - current.get(site, 0)
+        print(f"\n─── {site} ({remaining} traces to go) ───")
         while remaining > 0:
-            success = collect_single_trace(driver, WebDriverWait(driver, 20), site)
-            if success:
-                new_count += 1
+            ok = collect_single_trace(driver, WebDriverWait(driver, 20), site)
+            if ok:
+                total_new += 1
                 remaining -= 1
-                print(f"  - Collected trace #{TRACES_PER_SITE - remaining} for {site}")
+                print(f"   ✔ Collected {TRACES_PER_SITE - remaining}/{TRACES_PER_SITE}")
             else:
-                print(f"  - Failed to collect trace for {site}, retrying...")
-            # periodic save
+                print("   ⚠ Retry collecting…")
             database.db.export_to_json(OUTPUT_PATH)
-    return new_count
+    return total_new
 
 
 def main():
     """Main entrypoint for automated trace collection."""
-    # Ensure Flask backend is running
+    print("\n=== Fingerprint Trace Collector ===")
     if not is_server_running():
-        print("Starting Flask server...")
-        subprocess.Popen([sys.executable, "app.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("→ Flask backend not running; starting it now…")
+        subprocess.Popen([sys.executable, "app.py"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)
-    
-    # Initialize database
-    print("Initializing database...")
+        print("→ Backend should be up")
+
+    print("→ Initializing database…", end=" ")
     database.db.init_database()
-    
-    # Setup WebDriver
+    print("Done")
+
     driver = setup_webdriver()
+    total_new = 0
     try:
-        total_new = 0
         while not is_collection_complete():
-            total_new += collect_fingerprints(driver)
-        print(f"Collection complete. Total new traces: {total_new}")
+            added = collect_fingerprints(driver)
+            total_new += added
+            print(f"\n*** Round complete; +{added} new traces (total so far: {total_new}) ***")
+        print(f"\n=== Collection complete! Total new traces collected: {total_new} ===")
         database.db.export_to_json(OUTPUT_PATH)
     except Exception as e:
-        print(f"Fatal error during collection: {e}")
+        print(f"\n!!! Fatal error: {e}")
         traceback.print_exc()
     finally:
         driver.quit()
-        print("WebDriver closed.")
+        print("→ WebDriver closed. Exiting.")
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,7 @@
 /* Find the cache line size by running `getconf -a | grep CACHE` */
 const LINESIZE = 64;
 /* Find the L3 size by running `getconf -a | grep CACHE` */
-const LLCSIZE = 16 * 1024 * 1024; // 32MB
+const LLCSIZE = 8 * 1024 * 1024; // 32MB
 /* Collect traces for 10 seconds; you can vary this */
 const TIME = 10000;
 /* Collect traces every 10ms; you can vary this */

@@ -49,8 +49,8 @@ def collect_trace():
         website_name = website.replace('https://', '').replace('http://', '').replace('/', '_').replace('.', '_')
         filename = f'heatmap_{website_name}_{timestamp}.png'
         heatmap_path = os.path.join('static', filename)
-        plt.savefig(heatmap_path, bbox_inches='tight', pad_inches=0)
-        plt.close(fig)
+        # plt.savefig(heatmap_path, bbox_inches='tight', pad_inches=0)
+        # plt.close(fig)
 
         # Store trace and heatmap
         stored_traces.append(trace)
