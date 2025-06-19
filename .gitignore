@@ -2,3 +2,5 @@ __pycache__
 HEATMAPS
 sefat
 venv
+saved_models_big
+dataset_big.json
