@@ -83,13 +83,16 @@ function app() {
         const data = await response.json();
 
         // Add the new heatmap and its stats to the local collection
+         
         if (data.heatmap_url) {
           this.heatmaps.push({
             url: data.heatmap_url,
             min: data.min,
             max: data.max,
             range: data.range,
-            samples: data.samples
+            samples: data.samples,
+            prediction_simple: data.prediction_simple,
+            prediction_complex: data.prediction_complex
           });
         }
         this.status = "Trace collected and heatmap generated!";

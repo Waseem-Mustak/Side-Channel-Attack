@@ -7,10 +7,12 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Subset
 from sklearn.metrics import classification_report
 from sklearn.model_selection import StratifiedShuffleSplit
+import xgboost as xgb
+import joblib
 
 # Configuration
-DATASET_PATH = "dataset_big.json"
-MODELS_DIR = "saved_models_big"
+DATASET_PATH = "dataset.json"
+MODELS_DIR = "saved_models_with_xgboost"
 BATCH_SIZE = 64
 EPOCHS = 50  
 LEARNING_RATE = 1e-4
@@ -327,6 +329,55 @@ def main():
         print(f"\nEvaluating {name} model")
         model.load_state_dict(torch.load(save_path))
         evaluate(model, test_loader, unique_sites)
+    
+
+
+    # --- BEGIN XGBoost ADDED PART (fixed) ---
+    print("\nTraining xgboost model with eval logging...")
+    xgb_model = xgb.XGBClassifier(
+        objective='multi:softmax',
+        n_estimators=100,
+        learning_rate=0.3,
+        eval_metric='mlogloss'
+    )
+
+    # Provide both train & test for per-round logging
+    eval_sets = [
+        (X[train_idx], y[train_idx]),  # will be shown as validation_0
+        (X[test_idx],  y[test_idx])    # will be shown as validation_1
+    ]
+
+    xgb_model.fit(
+        X[train_idx], 
+        y[train_idx],
+        eval_set=eval_sets,
+        verbose=True
+    )
+
+    # Final classification report
+    xgb_preds = xgb_model.predict(X[test_idx])
+    print("\nFinal XGBoost Classification Report:")
+    print(classification_report(
+        y[test_idx],
+        xgb_preds,
+        target_names=unique_sites,
+        zero_division=1
+    ))
+
+    # Final train accuracy
+    train_preds = xgb_model.predict(X[train_idx])
+    train_acc = (train_preds == y[train_idx]).mean()
+    print(f"Final XGBoost Train Acc: {train_acc:.4f}")
+
+    # --- ADDED: Final test accuracy ---
+    test_preds = xgb_model.predict(X[test_idx])
+    test_acc = (test_preds == y[test_idx]).mean()
+    print(f"Final XGBoost Test Acc: {test_acc:.4f}")
+
+    # Save the model
+    joblib.dump(xgb_model, os.path.join(MODELS_DIR, "xgboost_model.joblib"))
+    # --- END XGBoost ADDED PART ---
+
 
 if __name__ == "__main__":
     main()

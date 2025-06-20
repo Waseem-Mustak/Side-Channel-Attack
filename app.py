@@ -1,3 +1,8 @@
+import torch  
+
+
+
+
 from flask import Flask, send_from_directory, request, jsonify
 # additional imports
 import os
@@ -5,6 +10,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
 import matplotlib
+
+
+
+
+# ////////////////////////////////////////////////////////////////////////
+from train import FingerprintClassifier, ComplexFingerprintClassifier, INPUT_SIZE  
+
+
+_sites = ["CseBuet", "Google", "ProthomAlo"]
+# _sites_name=["CseBuet", "Google", "ProthomAlo"]
+_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+
+# instantiate & load models
+_model_simple = FingerprintClassifier(INPUT_SIZE, hidden_size=128, num_classes=len(_sites))  
+_model_complex = ComplexFingerprintClassifier(INPUT_SIZE, hidden_size=128, num_classes=len(_sites))  
+_model_simple.load_state_dict(torch.load(os.path.join("saved_models", "simple_model.pth"), map_location=_device))  
+_model_complex.load_state_dict(torch.load(os.path.join("saved_models", "complex_model.pth"), map_location=_device))  
+_model_simple.to(_device).eval()  
+_model_complex.to(_device).eval()
+
+
+
+
+
+
+
 matplotlib.use('Agg')
 
 app = Flask(__name__)
@@ -49,21 +80,51 @@ def collect_trace():
         website_name = website.replace('https://', '').replace('http://', '').replace('/', '_').replace('.', '_')
         filename = f'heatmap_{website_name}_{timestamp}.png'
         heatmap_path = os.path.join('static', filename)
-        # plt.savefig(heatmap_path, bbox_inches='tight', pad_inches=0)
-        # plt.close(fig)
+        plt.savefig(heatmap_path, bbox_inches='tight', pad_inches=0)
+        plt.close(fig)
 
         # Store trace and heatmap
         stored_traces.append(trace)
         stored_heatmaps.append(filename)
 
         # Return the heatmap image URL and stats
-        return jsonify({
-            'heatmap_url': f'/{filename}',
-            'min': min_val,
-            'max': max_val,
-            'range': range_val,
-            'samples': samples
-        })
+        # return jsonify({
+        #     'heatmap_url': f'/{filename}',
+        #     'min': min_val,
+        #     'max': max_val,
+        #     'range': range_val,
+        #     'samples': samples
+        # })
+
+
+
+
+                # ——— prepare and run prediction ———  
+        # pad/trim to INPUT_SIZE  
+        arr_p = np.zeros((INPUT_SIZE,), dtype=np.float32)  
+        arr_p[: len(arr)] = arr[:INPUT_SIZE]  
+        x = torch.from_numpy(arr_p).unsqueeze(0).to(_device)  
+        with torch.no_grad():  
+            ps = _model_simple(x).argmax(dim=1).item()  
+            pc = _model_complex(x).argmax(dim=1).item()  
+        pred_simple = _sites[ps]  
+        pred_complex = _sites[pc]  
+
+        # print(pred_simple)
+        # print(pred_complex)
+        # Return the heatmap image URL, stats, AND predictions  
+        return jsonify({  
+            'heatmap_url': f'/{filename}',  
+            'min': min_val,  
+            'max': max_val,  
+            'range': range_val,  
+            'samples': samples,  
+            'prediction_simple': pred_simple,  
+            'prediction_complex': pred_complex  
+        })  
+
+
+
     except Exception as e:
         import traceback
         traceback.print_exc()
